@@ -1,18 +1,29 @@
 package io.dylemma.api
 
-import io.dylemma.api.ApiInterpreter.InterpreterState
+import io.dylemma.api.ApiInterpreter.{ InterpreterState, Step }
 
 import java.sql.Connection
 import scala.util.chaining._
 
-import cats.data.Kleisli
+import cats.arrow.FunctionK
+import cats.data.{ Kleisli, StateT }
 import cats.effect.IO
+import cats.~>
 import doobie.util.transactor.Transactor
 import org.http4s.Request
 import org.slf4j.Logger
 
+trait ApiInterpreter {
+	def run[A](op: Api[A], state: InterpreterState): IO[(InterpreterState, Either[ApiError, A])]
+
+	def runState[A](op: Api[A]): ApiInterpreter.Step[A] = StateT { run(op, _) }
+	def interpretK: Api ~> ApiInterpreter.Step = new FunctionK[Api, ApiInterpreter.Step] {
+		def apply[A](op: Api[A]): Step[A] = runState(op)
+	}
+}
+
 object ApiInterpreter {
-	//	type Step[+A] = StateT[IO, InterpreterState, Either[ApiError, A]]
+	type Step[A] = StateT[IO, InterpreterState, Either[ApiError, A]]
 
 	case class InterpreterState(
 		hasAccessedBody: Boolean,
@@ -20,14 +31,23 @@ object ApiInterpreter {
 	object InterpreterState {
 		val init = InterpreterState(hasAccessedBody = false)
 	}
+
+	def apply(
+		tx: Transactor[IO],
+		auth: ApiAuth,
+		logger: Logger,
+		req: Request[IO],
+	): ApiInterpreter = {
+		new ApiInterpreterImpl(tx, auth, logger, req)
+	}
 }
 
-class ApiInterpreter(
+private[api] class ApiInterpreterImpl(
 	tx: Transactor[IO],
 	auth: ApiAuth,
 	logger: Logger,
 	req: Request[IO],
-) {
+) extends ApiInterpreter {
 
 	def writeLog(op: LogStep): Unit = logger
 		.atLevel(op.level)

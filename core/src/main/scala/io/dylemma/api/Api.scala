@@ -7,8 +7,8 @@ import cats.effect.{ IO, SyncIO }
 import cats.syntax.apply._
 import cats.{ Monad, StackSafeMonad }
 import doobie.ConnectionIO
-import org.http4s.multipart.Part
 import org.http4s._
+import org.http4s.multipart.Part
 import org.slf4j.event.Level
 import org.typelevel.ci.CIString
 
@@ -34,7 +34,7 @@ object Api {
 
 	def requestHeaders: Api[Headers] = HeadersStep()
 	object requestHeader {
-		def apply[A](implicit ev: Header.Select[A], asHeader: Header[A, _]): Api[ev.F[A]] = requestHeaders.flatMap (_.get(ev) match {
+		def apply[A](implicit ev: Header.Select[A], asHeader: Header[A, _]): Api[ev.F[A]] = requestHeaders.flatMap(_.get(ev) match {
 			case None => error(MissingHeader(name = asHeader.name.toString))
 			case Some(a) => pure(a)
 		})
@@ -80,6 +80,10 @@ object Api {
 sealed trait Api[+A] {
 	def flatMap[B](f: A => Api[B]): Api[B] = Bind(this, f)
 	def map[B](f: A => B): Api[B] = Bind[A, B](this, a => Pure(Right(f(a))))
+
+	def semiflatMap[B](f: A => IO[B]): Api[B] = flatMap[B](a => Api.liftF(f(a)))
+	def subflatMap[B](f: A => Either[ApiError, B]): Api[B] = flatMap(a => Api.wrap(f(a)))
+	def flatMapF[B](f: A => EitherT[IO, ApiError, B]): Api[B] = flatMap(a => Api.liftE(f(a)))
 }
 
 private[api] case class Pure[A](a: Either[ApiError, A]) extends Api[A]

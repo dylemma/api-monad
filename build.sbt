@@ -1,4 +1,3 @@
-ThisBuild / name := "api-monad"
 ThisBuild / scalaVersion := "2.13.10"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
